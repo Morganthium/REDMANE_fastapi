@@ -1,7 +1,17 @@
 import psycopg2
 from psycopg2 import sql
+import os
 
-DATABASE = "postgresql://username:password@localhost:5432/readmedatabase"
+# DATABASE = "postgresql://username:password@localhost:5432/readmedatabase"
+
+DB_USER = os.getenv('DB_USER', 'postgres')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'password')
+DB_HOST = os.getenv('DB_HOST', 'db')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'readmedatabase')
+
+DATABASE = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
 
 def init_db():
     try:

@@ -1,3 +1,4 @@
+import os
 import psycopg2
 import csv
 import argparse
@@ -15,11 +16,11 @@ ext_patient_url = args.ext_patient_url
 csv_file = args.csv_file
 
 DATABASE_CONFIG = {
-    'dbname': 'readmedatabase',
-    'user': 'username',
-    'password': 'password',
-    'host': 'localhost',
-    'port': 5432
+    'dbname': os.getenv('DB_NAME', 'readmedatabase'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'password'),
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', 5432))
 }
 
 conn = psycopg2.connect(**DATABASE_CONFIG)

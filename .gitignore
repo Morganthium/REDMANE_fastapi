@@ -4,3 +4,4 @@ __pycache__/
 *.test.dat
 *.tsv
 env/
+data/REDMANE_fastapi_public_data

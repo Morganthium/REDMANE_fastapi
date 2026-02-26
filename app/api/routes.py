@@ -1,6 +1,8 @@
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from app.routers.auth import verify_token
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import RedirectResponse
+import os
 
 import psycopg2
 from psycopg2 import Error
@@ -25,11 +27,11 @@ from app.schemas.schemas import (
 )
 
 # Replace with your actual connection details
-DB_NAME = "readmedatabase"
-DB_USER = "username"
-DB_PASSWORD = "password"
-DB_HOST = "localhost"
-DB_PORT = "5432"
+DB_NAME = os.getenv('DB_NAME', 'readmedatabase')
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
+DB_HOST = os.getenv("DB_HOST", "db")
+DB_PORT = os.getenv("DB_PORT", "5432")
 
 router = APIRouter()
 
@@ -48,7 +50,7 @@ def get_connection():
 
 
 @router.post("/add_raw_files/")
-async def add_raw_files(raw_files: List[RawFileCreate]):
+async def add_raw_files(raw_files: List[RawFileCreate], token: dict = Depends(verify_token)):
     """
     Insert new raw_files (and associated metadata) into the DB.
     """
@@ -291,7 +293,8 @@ async def get_samples_per_patient(sample_id: int, project_id: int):
 
 @router.get("/patients/", response_model=List[PatientWithSampleCount])
 async def get_patients(
-        project_id: Optional[int] = Query(None, description="Filter by project ID")
+        project_id: Optional[int] = Query(None, description="Filter by project ID"), 
+        token: dict = Depends(verify_token)
 ):
     """
     Fetch all patients (optionally filtered by project_id) with a count of how many samples they have.
@@ -336,7 +339,7 @@ async def get_patients(
 
 
 @router.get("/projects/", response_model=List[Project])
-async def get_projects():
+async def get_projects(token: dict = Depends(verify_token)):
     """
     Fetch all projects from the database.
     """
@@ -352,12 +355,76 @@ async def get_projects():
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
+@router.get("/projects/{project_id}/summary")
+async def get_project_summary(project_id: int, token: dict = Depends(verify_token)):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id, name FROM projects WHERE id = %s", (project_id,))
+        project = cursor.fetchone()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Get datasets for this project
+        cursor.execute("SELECT id, name FROM datasets WHERE project_id = %s", (project_id,))
+        datasets = cursor.fetchall()
+
+        # Get totals
+        cursor.execute("""
+            SELECT COUNT(DISTINCT p.id), COUNT(DISTINCT s.id)
+            FROM patients p
+            LEFT JOIN samples s ON s.patient_id = p.id
+            WHERE p.project_id = %s
+        """, (project_id,))
+        patient_count, sample_count = cursor.fetchone()
+
+        dataset_summaries = []
+        total_file_count = 0
+        for ds_id, ds_name in datasets:
+            cursor.execute("SELECT COUNT(*) FROM raw_files WHERE dataset_id = %s", (ds_id,))
+            file_count = cursor.fetchone()[0]
+            total_file_count += file_count
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT p.id), COUNT(DISTINCT s.id)
+                FROM patients p
+                LEFT JOIN samples s ON s.patient_id = p.id
+                WHERE p.project_id = %s
+            """, (project_id,))
+            ds_patients, ds_samples = cursor.fetchone()
+
+            dataset_summaries.append({
+                "dataset_id": ds_id,
+                "dataset_name": ds_name,
+                "file_count": file_count,
+                "patient_count": ds_patients,
+                "sample_count": ds_samples,
+                "total_size_bytes": 0
+            })
+
+        conn.close()
+
+        return {
+            "project_id": project_id,
+            "project_name": project[1],
+            "totals": {
+                "file_count": total_file_count,
+                "patient_count": patient_count,
+                "sample_count": sample_count,
+                "total_size_bytes": 0
+            },
+            "datasets": dataset_summaries
+        }
+
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 @router.get("/datasets/", response_model=List[Dataset])
 async def get_datasets(
         project_id: Optional[int] = Query(None, description="Filter by project ID"),
-        dataset_id: Optional[int] = Query(None, description="Filter by dataset ID")
-):
+        dataset_id: Optional[int] = Query(None, description="Filter by dataset ID"),
+        token: dict = Depends(verify_token)):
     """
     Fetch datasets, optionally filtered by project_id and/or dataset_id.
     """
@@ -365,7 +432,7 @@ async def get_datasets(
         conn = get_connection()
         cursor = conn.cursor()
 
-        query = "SELECT id, project_id, name FROM datasets WHERE 1=1"
+        query = "SELECT id, project_id, name, site, created_at FROM datasets WHERE 1=1"
         params = []
 
         if project_id is not None:
@@ -380,14 +447,14 @@ async def get_datasets(
         rows = cursor.fetchall()
         conn.close()
 
-        return [Dataset(id=row[0], project_id=row[1], name=row[2]) for row in rows]
+        return [Dataset(id=row[0], project_id=row[1], name=row[2], site=row[3], created_at=row[4]) for row in rows]
 
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
 @router.get("/datasets_with_metadata/{dataset_id}", response_model=DatasetWithMetadata)
-async def get_dataset_with_metadata(dataset_id: int, project_id: int):
+async def get_dataset_with_metadata(dataset_id: int, project_id: int, token: dict = Depends(verify_token)):
     """
     Fetch dataset details (and its metadata) for the given dataset_id + project_id.
     """
@@ -436,7 +503,7 @@ async def get_dataset_with_metadata(dataset_id: int, project_id: int):
 
 
 @router.get("/raw_files_with_metadata/{dataset_id}", response_model=List[RawFileResponse])
-async def get_raw_files_with_metadata(dataset_id: int):
+async def get_raw_files_with_metadata(dataset_id: int, token: dict = Depends(verify_token)):
     """
     Fetch raw_files within a dataset, along with any related sample metadata.
     """
