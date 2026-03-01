@@ -6,4 +6,4 @@ __pycache__/
 env/
 data/REDMANE_fastapi_public_data
 .env
-package-lock.json
+package-lock.jsonenv/
