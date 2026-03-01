@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 
 # Pydantic model for Project
 class Project(BaseModel):
@@ -11,7 +12,9 @@ class Project(BaseModel):
 class Dataset(BaseModel):
     id: int
     project_id: int
-    name: str
+    name: Optional[str] = None
+    site: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 class DatasetMetadata(BaseModel):
     id: int

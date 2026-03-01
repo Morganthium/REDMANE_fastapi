@@ -4,3 +4,7 @@ __pycache__/
 *.test.dat
 *.tsv
 env/
+data/REDMANE_fastapi_public_data
+.env
+package-lock.jsonenv/
+package-lock.json
